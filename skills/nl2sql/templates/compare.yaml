@@ -1,0 +1,129 @@
+# 对比分析模板
+# 覆盖：同比、环比、自定义两段时间对比
+
+templates:
+  - id: compare_mom
+    name: 环比分析
+    keywords: [环比, 比上月, 比上周, 增长, 下降, 变化]
+    params:
+      - name: current_start
+        type: date
+        required: false
+        default: "this_month_start"
+        description: 当期开始
+      - name: current_end
+        type: date
+        required: false
+        default: yesterday
+      - name: dimension
+        type: enum
+        options: [total, channel, product]
+        default: total
+    sql_base: |
+      -- 当期
+      SELECT
+          {% if dimension == 'channel' %}
+          COALESCE(cx_second_channel, 'NA') AS dim,
+          {% elif dimension == 'product' %}
+          COALESCE(product_name, 'NA') AS dim,
+          {% else %}
+          '全部' AS dim,
+          {% endif %}
+          ROUND(SUM(exe_income), 2) AS income_current
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ current_start }}'
+        AND executed_date <= '{{ current_end }}'
+        AND is_valid = 1
+      {% if dimension != 'total' %}
+      GROUP BY dim
+      {% endif %}
+    output:
+      type: card
+      title: "环比分析 · {{ current_start }} ~ {{ current_end }}"
+    note: "MaxCompute 不支持跨查询变量，此模板展示参数化思路，实际执行时由 Python 脚本分别跑当期和基期再合并。"
+
+  - id: compare_yoy
+    name: 同比分析
+    keywords: [同比, 去年同期, 比去年, YoY]
+    params:
+      - name: current_start
+        type: date
+        required: false
+        default: "this_month_start"
+      - name: current_end
+        type: date
+        required: false
+        default: yesterday
+      - name: metric
+        type: enum
+        options: [income, customers, orders, asp]
+        default: income
+        mapping:
+          income: "SUM(exe_income)"
+          customers: "COUNT(DISTINCT customer_id)"
+          orders: "COUNT(DISTINCT order_id)"
+          asp: "SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0)"
+    sql: |
+      SELECT
+          '当期' AS period,
+          ROUND({{ metric }}, 2) AS value
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ current_start }}'
+        AND executed_date <= '{{ current_end }}'
+        AND is_valid = 1
+      UNION ALL
+      SELECT
+          '去年同期' AS period,
+          ROUND({{ metric }}, 2) AS value
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= DATE_SUB('{{ current_start }}', 365)
+        AND executed_date <= DATE_SUB('{{ current_end }}', 365)
+        AND is_valid = 1
+    output:
+      type: card
+      title: "同比分析 · {{ metric }}"
+
+  - id: compare_custom
+    name: 自定义两段对比
+    keywords: [对比, 比较, 两段时间, A vs B]
+    params:
+      - name: period_a_start
+        type: date
+        required: true
+      - name: period_a_end
+        type: date
+        required: true
+      - name: period_b_start
+        type: date
+        required: true
+      - name: period_b_end
+        type: date
+        required: true
+    sql: |
+      SELECT 'A期' AS period,
+          COUNT(DISTINCT customer_id) AS customers,
+          COUNT(DISTINCT order_id)    AS orders,
+          ROUND(SUM(exe_income), 2)   AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ period_a_start }}'
+        AND executed_date <= '{{ period_a_end }}'
+        AND is_valid = 1
+      UNION ALL
+      SELECT 'B期' AS period,
+          COUNT(DISTINCT customer_id) AS customers,
+          COUNT(DISTINCT order_id)    AS orders,
+          ROUND(SUM(exe_income), 2)   AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ period_b_start }}'
+        AND executed_date <= '{{ period_b_end }}'
+        AND is_valid = 1
+    output:
+      type: card
+      title: "对比分析 · A vs B"

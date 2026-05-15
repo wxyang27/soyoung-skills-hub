@@ -1,0 +1,143 @@
+# LTV 与留存分析模板
+# 覆盖：Cohort LTV切片、增量LTV、留存率趋势
+
+templates:
+  - id: ltv_cohort
+    name: 季度Cohort LTV切片
+    keywords: [LTV, 生命周期, cohort, 切片, 人均收入]
+    params:
+      - name: quarters
+        type: string
+        required: false
+        default: "all"
+        description: "季度列表逗号分隔，如 25Q1,25Q2，默认全部"
+    sql: |
+      WITH cohort_ltv AS (
+        SELECT
+            CONCAT(SUBSTR(executed_date, 1, 4), 'Q', CAST((CAST(SUBSTR(executed_date, 6, 2) AS INT) - 1) / 3 + 1 AS STRING)) AS quarter,
+            customer_id,
+            SUM(exe_income) AS total_income,
+            COUNT(DISTINCT verify_date_id) AS visits,
+            MIN(executed_date) AS first_date
+        FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+        WHERE dp = '{{ latest_dp }}'
+          AND is_valid = 1
+        GROUP BY customer_id, CONCAT(SUBSTR(executed_date, 1, 4), 'Q', CAST((CAST(SUBSTR(executed_date, 6, 2) AS INT) - 1) / 3 + 1 AS STRING))
+      )
+      SELECT
+          quarter,
+          COUNT(DISTINCT customer_id)     AS customers,
+          ROUND(SUM(total_income), 2)     AS total_income,
+          ROUND(SUM(total_income) / COUNT(DISTINCT customer_id), 2) AS ltv,
+          ROUND(SUM(visits) * 1.0 / COUNT(DISTINCT customer_id), 1) AS avg_visits
+      FROM cohort_ltv
+      {% if quarters != 'all' %}
+      WHERE quarter IN ('{{ quarters | replace(",", "','") }}')
+      {% endif %}
+      GROUP BY quarter
+      ORDER BY quarter
+      LIMIT 50
+    output:
+      type: card
+      title: "季度Cohort LTV 切片"
+
+  - id: ltv_incremental
+    name: 增量LTV震中定位
+    keywords: [增量LTV, LTV下滑, 复购窗口, 哪个阶段]
+    note: "此模板需先计算首次到院cohort，再按30天窗口切片。实际执行由Python脚本完成多步查询，此处定义参数和输出格式。"
+    output:
+      type: card
+      title: "增量LTV 震中分析"
+
+  - id: retention
+    name: 留存率分析
+    keywords: [留存, 留存率, 复购率, 回访, retention]
+    params:
+      - name: cohort_type
+        type: enum
+        options: [monthly, quarterly]
+        default: monthly
+        description: cohort 粒度
+      - name: retention_window
+        type: enum
+        options: [30, 60, 90]
+        default: 90
+        description: 留存窗口（天）
+    sql: |
+      WITH first_visit AS (
+        SELECT
+            customer_id,
+            MIN(executed_date) AS first_date,
+            {% if cohort_type == 'monthly' %}
+            SUBSTR(MIN(executed_date), 1, 7) AS cohort
+            {% else %}
+            CONCAT(SUBSTR(MIN(executed_date), 1, 4), 'Q', CAST((CAST(SUBSTR(MIN(executed_date), 6, 2) AS INT) - 1) / 3 + 1 AS STRING)) AS cohort
+            {% endif %}
+        FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+        WHERE dp = '{{ latest_dp }}'
+          AND is_valid = 1
+          AND executed_date >= '2024-01-01'
+        GROUP BY customer_id
+      ),
+      retained AS (
+        SELECT DISTINCT f.cohort, f.customer_id
+        FROM first_visit f
+        JOIN soyoung_dw.dm_opt_qy_user_execution_record_all_d t
+          ON f.customer_id = t.customer_id
+         AND t.executed_date > f.first_date
+         AND t.executed_date <= DATE_ADD(f.first_date, {{ retention_window }})
+         AND t.dp = '{{ latest_dp }}'
+         AND t.is_valid = 1
+      )
+      SELECT
+          f.cohort,
+          COUNT(DISTINCT f.customer_id) AS total_users,
+          COUNT(DISTINCT r.customer_id) AS retained_users,
+          ROUND(COUNT(DISTINCT r.customer_id) * 100.0 / COUNT(DISTINCT f.customer_id), 1) AS retention_pct
+      FROM first_visit f
+      LEFT JOIN retained r ON f.customer_id = r.customer_id
+      GROUP BY f.cohort
+      ORDER BY f.cohort
+      LIMIT 50
+    output:
+      type: card
+      title: "{{ retention_window }}天留存率 · {{ cohort_type }}"
+
+  - id: ltv_first_asp
+    name: 首次客单价与LTV关系
+    keywords: [首次客单价, 拉新质量, 首单, first asp]
+    params:
+      - name: quarters
+        type: string
+        required: false
+        default: "all"
+    sql: |
+      WITH first_purchase AS (
+        SELECT
+            customer_id,
+            MIN(executed_date) AS first_date
+        FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+        WHERE dp = '{{ latest_dp }}'
+          AND is_valid = 1
+        GROUP BY customer_id
+      )
+      SELECT
+          CONCAT(SUBSTR(fp.first_date, 1, 4), 'Q', CAST((CAST(SUBSTR(fp.first_date, 6, 2) AS INT) - 1) / 3 + 1 AS STRING)) AS cohort,
+          COUNT(DISTINCT fp.customer_id)     AS customers,
+          ROUND(SUM(f.exe_income) / COUNT(DISTINCT f.verify_date_id), 2) AS first_asp,
+          ROUND(SUM(t.exe_income) / COUNT(DISTINCT fp.customer_id), 2) AS ltv_365
+      FROM first_purchase fp
+      JOIN soyoung_dw.dm_opt_qy_user_execution_record_all_d f
+        ON fp.customer_id = f.customer_id AND fp.first_date = f.executed_date AND f.dp = '{{ latest_dp }}' AND f.is_valid = 1
+      JOIN soyoung_dw.dm_opt_qy_user_execution_record_all_d t
+        ON fp.customer_id = t.customer_id
+       AND t.executed_date >= fp.first_date
+       AND t.executed_date <= DATE_ADD(fp.first_date, 364)
+       AND t.dp = '{{ latest_dp }}'
+       AND t.is_valid = 1
+      GROUP BY CONCAT(SUBSTR(fp.first_date, 1, 4), 'Q', CAST((CAST(SUBSTR(fp.first_date, 6, 2) AS INT) - 1) / 3 + 1 AS STRING))
+      ORDER BY cohort
+      LIMIT 50
+    output:
+      type: card
+      title: "首次客单价 & LTV 关系 · {{ quarters }}"

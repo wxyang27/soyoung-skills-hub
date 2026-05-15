@@ -1,0 +1,101 @@
+# 新老客分析模板
+# 覆盖：新老客对比、新客首单分析、老客复购分析
+
+templates:
+  - id: customer_split
+    name: 新老客收入拆分
+    keywords: [新客, 老客, 新老客, 新老客对比, 新客户, 老客户]
+    params:
+      - name: start_date
+        type: date
+        required: false
+        default: "90_days_ago"
+      - name: end_date
+        type: date
+        required: false
+        default: yesterday
+    sql: |
+      SELECT
+          CASE WHEN is_new = 1 THEN '新客' ELSE '老客' END AS customer_type,
+          COUNT(DISTINCT customer_id)                   AS customers,
+          COUNT(DISTINCT order_id)                      AS orders,
+          COUNT(DISTINCT verify_date_id)                AS visits,
+          ROUND(SUM(exe_income), 2)                     AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT customer_id), 0), 2)    AS arpu,
+          ROUND(COUNT(DISTINCT order_id) * 1.0 / NULLIF(COUNT(DISTINCT customer_id), 0), 2) AS orders_per_customer
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ start_date }}'
+        AND executed_date <= '{{ end_date }}'
+        AND is_valid = 1
+      GROUP BY CASE WHEN is_new = 1 THEN '新客' ELSE '老客' END
+    output:
+      type: card
+      title: "新老客收入对比 · {{ start_date }} ~ {{ end_date }}"
+
+  - id: customer_trend
+    name: 新老客月度趋势
+    keywords: [新客趋势, 老客趋势, 新客变化, 复购]
+    params:
+      - name: months
+        type: int
+        required: false
+        default: 12
+    sql: |
+      SELECT
+          SUBSTR(executed_date, 1, 7)                  AS month,
+          CASE WHEN is_new = 1 THEN '新客' ELSE '老客' END AS customer_type,
+          COUNT(DISTINCT customer_id)                   AS customers,
+          COUNT(DISTINCT order_id)                      AS orders,
+          ROUND(SUM(exe_income), 2)                     AS income
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= DATE_SUB(CURRENT_DATE(), {{ months }} * 30)
+        AND is_valid = 1
+      GROUP BY SUBSTR(executed_date, 1, 7), CASE WHEN is_new = 1 THEN '新客' ELSE '老客' END
+      ORDER BY month, customer_type
+      LIMIT {{ months * 2 }}
+    output:
+      type: card
+      title: "新老客月度趋势 · 近{{ months }}月"
+
+  - id: customer_channel
+    name: 新老客×渠道交叉
+    keywords: [新客 渠道, 老客 渠道, 渠道 拉新, 渠道质量]
+    params:
+      - name: start_date
+        type: date
+        required: false
+        default: "90_days_ago"
+      - name: end_date
+        type: date
+        required: false
+        default: yesterday
+      - name: customer_type
+        type: enum
+        options: [new, old]
+        default: new
+        mapping:
+          new: "is_new = 1"
+          old: "is_new = 0"
+    sql: |
+      SELECT
+          COALESCE(cx_second_channel, 'NA')            AS channel,
+          COUNT(DISTINCT customer_id)                   AS customers,
+          COUNT(DISTINCT order_id)                      AS orders,
+          ROUND(SUM(exe_income), 2)                     AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT customer_id), 0), 2)    AS arpu
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ start_date }}'
+        AND executed_date <= '{{ end_date }}'
+        AND is_valid = 1
+        AND {{ customer_type }}
+      GROUP BY cx_second_channel
+      ORDER BY income DESC
+      LIMIT 50
+    output:
+      type: card
+      title: "{{ '新客' if customer_type == 'new' else '老客' }}渠道分布 · {{ start_date }} ~ {{ end_date }}"

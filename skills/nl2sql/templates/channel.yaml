@@ -1,0 +1,145 @@
+# 渠道分析模板
+# 覆盖：一级/二级/三级渠道收入分布、渠道趋势、渠道×品项交叉
+
+templates:
+  - id: channel_distribution
+    name: 渠道收入分布
+    keywords: [渠道, 渠道分布, 渠道分析, 渠道占比, 私域, 公域, 老带新]
+    params:
+      - name: start_date
+        type: date
+        required: false
+        default: "90_days_ago"
+      - name: end_date
+        type: date
+        required: false
+        default: yesterday
+      - name: level
+        type: enum
+        options: [first, second, third]
+        default: second
+        mapping:
+          first: "cx_first_channel"
+          second: "cx_second_channel"
+          third: "cx_third_channel"
+    sql: |
+      SELECT
+          COALESCE({{ level }}, 'NA')                 AS channel,
+          COUNT(DISTINCT customer_id)                 AS customers,
+          COUNT(DISTINCT order_id)                    AS orders,
+          COUNT(DISTINCT verify_date_id)              AS visits,
+          ROUND(SUM(exe_income), 2)                   AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT customer_id), 0), 2)    AS arpu
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ start_date }}'
+        AND executed_date <= '{{ end_date }}'
+        AND is_valid = 1
+      GROUP BY {{ level }}
+      ORDER BY income DESC
+      LIMIT 100
+    output:
+      type: card
+      title: "渠道收入分布 · {{ start_date }} ~ {{ end_date }}"
+
+  - id: channel_trend
+    name: 渠道月度趋势
+    keywords: [渠道趋势, 渠道变化, 渠道走势, 渠道对比]
+    params:
+      - name: start_date
+        type: date
+        required: false
+        default: "180_days_ago"
+      - name: end_date
+        type: date
+        required: false
+        default: yesterday
+      - name: level
+        type: enum
+        options: [first, second, third]
+        default: second
+        mapping:
+          first: "cx_first_channel"
+          second: "cx_second_channel"
+          third: "cx_third_channel"
+      - name: top_n
+        type: int
+        required: false
+        default: 5
+    sql: |
+      WITH ranked AS (
+        SELECT
+            {{ level }} AS channel,
+            SUM(exe_income) AS total_income
+        FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+        WHERE dp = '{{ latest_dp }}'
+          AND executed_date >= '{{ start_date }}'
+          AND executed_date <= '{{ end_date }}'
+          AND is_valid = 1
+        GROUP BY {{ level }}
+        ORDER BY total_income DESC
+        LIMIT {{ top_n }}
+      )
+      SELECT
+          SUBSTR(t.executed_date, 1, 7) AS month,
+          COALESCE({{ level }}, 'NA')   AS channel,
+          ROUND(SUM(t.exe_income), 2)   AS income
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d t
+      JOIN ranked r ON COALESCE({{ level }}, 'NA') = r.channel
+      WHERE t.dp = '{{ latest_dp }}'
+        AND t.executed_date >= '{{ start_date }}'
+        AND t.executed_date <= '{{ end_date }}'
+        AND t.is_valid = 1
+      GROUP BY SUBSTR(t.executed_date, 1, 7), {{ level }}
+      ORDER BY month, channel
+      LIMIT 500
+    output:
+      type: card
+      title: "渠道月度趋势 · TOP{{ top_n }}"
+
+  - id: channel_product_cross
+    name: 渠道×品项交叉分析
+    keywords: [渠道 品项, 品项 渠道, 交叉, 哪个渠道卖最好]
+    params:
+      - name: start_date
+        type: date
+        required: false
+        default: "90_days_ago"
+      - name: end_date
+        type: date
+        required: false
+        default: yesterday
+      - name: product
+        type: string
+        required: false
+        description: 品项关键词，不填则TOP10品项
+      - name: level
+        type: enum
+        options: [first, second, third]
+        default: second
+        mapping:
+          first: "cx_first_channel"
+          second: "cx_second_channel"
+          third: "cx_third_channel"
+    sql: |
+      SELECT
+          COALESCE(product_name, 'NA')               AS product,
+          COALESCE({{ level }}, 'NA')                AS channel,
+          COUNT(DISTINCT order_id)                   AS orders,
+          ROUND(SUM(exe_income), 2)                  AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ start_date }}'
+        AND executed_date <= '{{ end_date }}'
+        AND is_valid = 1
+        {% if product %}
+        AND product_name LIKE '%{{ product }}%'
+        {% endif %}
+      GROUP BY product_name, {{ level }}
+      ORDER BY income DESC
+      LIMIT 200
+    output:
+      type: card
+      title: "渠道×品项交叉 · {{ start_date }} ~ {{ end_date }}"

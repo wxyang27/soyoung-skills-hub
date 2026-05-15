@@ -1,0 +1,117 @@
+# 品项分析模板
+# 覆盖：品项排名、单品趋势、品项对比、新老客×品项
+
+templates:
+  - id: product_ranking
+    name: 品项收入排名
+    keywords: [品项, 产品排名, 品项排名, 卖最好, 畅销, TOP]
+    params:
+      - name: start_date
+        type: date
+        required: false
+        default: "90_days_ago"
+      - name: end_date
+        type: date
+        required: false
+        default: yesterday
+      - name: top_n
+        type: int
+        required: false
+        default: 20
+      - name: customer_type
+        type: enum
+        options: [all, new, old]
+        default: all
+        mapping:
+          all: "1=1"
+          new: "is_new = 1"
+          old: "is_new = 0"
+    sql: |
+      SELECT
+          COALESCE(product_name, 'NA')               AS product,
+          COUNT(DISTINCT customer_id)                AS customers,
+          COUNT(DISTINCT order_id)                   AS orders,
+          COUNT(DISTINCT verify_date_id)             AS visits,
+          ROUND(SUM(exe_income), 2)                  AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT customer_id), 0), 2)    AS arpu
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ start_date }}'
+        AND executed_date <= '{{ end_date }}'
+        AND is_valid = 1
+        AND {{ customer_type }}
+      GROUP BY product_name
+      ORDER BY income DESC
+      LIMIT {{ top_n }}
+    output:
+      type: card
+      title: "品项收入 TOP{{ top_n }} · {{ start_date }} ~ {{ end_date }}"
+
+  - id: product_trend
+    name: 单品月度趋势
+    keywords: [品项趋势, 单品走势, 单品表现, 一个月卖多少]
+    params:
+      - name: product
+        type: string
+        required: true
+        description: 品项关键词（LIKE匹配）
+      - name: months
+        type: int
+        required: false
+        default: 12
+    sql: |
+      SELECT
+          SUBSTR(executed_date, 1, 7)               AS month,
+          COUNT(DISTINCT customer_id)                AS customers,
+          COUNT(DISTINCT order_id)                   AS orders,
+          COUNT(DISTINCT verify_date_id)             AS visits,
+          ROUND(SUM(exe_income), 2)                  AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= DATE_SUB(CURRENT_DATE(), {{ months }} * 30)
+        AND is_valid = 1
+        AND product_name LIKE '%{{ product }}%'
+      GROUP BY SUBSTR(executed_date, 1, 7)
+      ORDER BY month DESC
+      LIMIT {{ months }}
+    output:
+      type: card
+      title: "{{ product }} 月度趋势"
+
+  - id: product_compare
+    name: 多品项对比
+    keywords: [对比, 比较, VS, 哪个好, 哪个多]
+    params:
+      - name: products
+        type: string
+        required: true
+        description: 品项关键词，竖线分隔（A|B|C）
+      - name: start_date
+        type: date
+        required: false
+        default: "90_days_ago"
+      - name: end_date
+        type: date
+        required: false
+        default: yesterday
+    sql: |
+      SELECT
+          COALESCE(product_name, 'NA')               AS product,
+          COUNT(DISTINCT customer_id)                AS customers,
+          COUNT(DISTINCT order_id)                   AS orders,
+          ROUND(SUM(exe_income), 2)                  AS income,
+          ROUND(SUM(exe_income) / NULLIF(COUNT(DISTINCT verify_date_id), 0), 2) AS asp
+      FROM soyoung_dw.dm_opt_qy_user_execution_record_all_d
+      WHERE dp = '{{ latest_dp }}'
+        AND executed_date >= '{{ start_date }}'
+        AND executed_date <= '{{ end_date }}'
+        AND is_valid = 1
+        AND ({% for p in products.split('|') %}{% if not loop.first %} OR {% endif %}product_name LIKE '%{{ p.strip() }}%'{% endfor %})
+      GROUP BY product_name
+      ORDER BY income DESC
+      LIMIT 50
+    output:
+      type: card
+      title: "品项对比 · {{ start_date }} ~ {{ end_date }}"
