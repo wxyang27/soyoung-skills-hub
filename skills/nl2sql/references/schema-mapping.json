@@ -1,0 +1,75 @@
+{
+  "project": "soyoung_dw",
+  "endpoint": "http://service.cn-shanghai.maxcompute.aliyun.com/api",
+  "tables": {
+    "dm_opt_qy_user_execution_record_all_d": {
+      "type": "all_d",
+      "description": "核销记录全量汇总表（最核心）",
+      "partition": {"col": "dp", "format": "YYYY-MM-DD", "lag": "T+1"},
+      "business_date_col": "executed_date",
+      "key_fields": {
+        "exe_income": {"type": "decimal", "description": "核销收入", "unit": "元"},
+        "exe_amount": {"type": "decimal", "description": "核销GMV", "unit": "元"},
+        "exe_cnt": {"type": "int", "description": "核销服务点数"},
+        "customer_id": {"type": "string", "description": "客户ID"},
+        "order_id": {"type": "string", "description": "订单ID"},
+        "verify_date_id": {"type": "string", "description": "核销日期ID，人次统计用"},
+        "is_new": {"type": "int", "description": "新老客：1=新客 0=老客"},
+        "is_valid": {"type": "int", "description": "有效性：1=有效"},
+        "product_name": {"type": "string", "description": "品项名称"},
+        "product_id": {"type": "bigint", "description": "品项ID"},
+        "cx_first_channel": {"type": "string", "description": "一级渠道"},
+        "cx_second_channel": {"type": "string", "description": "二级渠道（推荐默认）"},
+        "cx_third_channel": {"type": "string", "description": "三级渠道"},
+        "income_type": {"type": "string", "description": "收入分类：大单品/常规品"},
+        "is_master": {"type": "int", "description": "是否大师团：1=是 0=否"},
+        "executed_date": {"type": "string", "description": "核销实际发生日期", "format": "YYYY-MM-DD"}
+      }
+    },
+    "dm_opt_qy_order_info_all_d": {
+      "type": "all_d",
+      "description": "订单信息全量汇总表",
+      "partition": {"col": "dp", "format": "YYYY-MM-DD", "lag": "T+1"},
+      "business_date_col": "pay_date",
+      "key_fields": {
+        "pay_amount": {"type": "decimal", "description": "支付金额", "unit": "元"},
+        "left_gmv": {"type": "decimal", "description": "待核销GMV"},
+        "order_id": {"type": "string", "description": "订单ID"},
+        "uid": {"type": "string", "description": "用户ID"},
+        "pay_date": {"type": "string", "description": "支付日期"}
+      }
+    },
+    "dwd_ord_order_qzy_fact_all_d": {
+      "type": "all_d",
+      "description": "订单事实宽表（112用户画像字段源）",
+      "partition": {"col": "dp", "format": "YYYY-MM-DD", "lag": "T+1"},
+      "key_fields": {
+        "order_id": {"type": "string"},
+        "uid": {"type": "string"},
+        "pay_amount": {"type": "decimal"},
+        "pay_date": {"type": "string"},
+        "channel": {"type": "string"},
+        "business_type": {"type": "string"}
+      }
+    },
+    "dwd_ord_order_qy_execution_record_all_d": {
+      "type": "all_d",
+      "description": "核销执行记录明细表",
+      "partition": {"col": "dp", "format": "YYYY-MM-DD", "lag": "T+1"},
+      "key_fields": {
+        "uid": {"type": "string"},
+        "verify_date": {"type": "string"},
+        "exe_amount": {"type": "decimal"},
+        "exe_income": {"type": "decimal"}
+      }
+    }
+  },
+  "conventions": {
+    "revenue_default": "核销收入(exe_income)，非支付金额(pay_amount)",
+    "channel_default": "二级渠道(cx_second_channel)，28个值",
+    "customer_default": "全部客户(不加is_new过滤)，除非明确指定新/老客",
+    "asp_denominator": "人次(verify_date_id)，非人头(customer_id)",
+    "date_filter": "executed_date(核销) 或 pay_date(支付)，配合dp取最新快照",
+    "maxcompute_rules": ["ORDER BY需配LIMIT", "分区表必须指定dp", "字符串用单引号"]
+  }
+}
