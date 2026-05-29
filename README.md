@@ -1,6 +1,6 @@
 # soyoung-skills-hub
 
-新氧连锁业务 Claude Code 技能市场，包含自研数据分析技能和精选外部技能。
+新氧连锁业务数据技能市场，包含自研数据分析技能和精选外部技能。
 
 ## 快速开始
 
@@ -16,7 +16,7 @@ npx skills add ./skills/nl2sql
 
 | 技能 | 说明 | 状态 |
 |------|------|------|
-| `nl2sql` | 自然语言 → MaxCompute SQL 标准模板库 | 🔜 规划中 |
+| `nl2sql` | 自然语言 → MaxCompute SQL 标准模板库 | 🔜 已完成 |
 | `data-monitor` | 核心指标自动监控与飞书预警 | 🔜 规划中 |
 | `auto-report` | 周报/月报自动生成与推送 | 🔜 规划中 |
 | `data-lineage` | 数据血縁自动分析与变更影响评估 | 🔜 规划中 |
