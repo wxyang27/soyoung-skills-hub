@@ -1,0 +1,4 @@
+interface:
+  display_name: "连锁业务问答背景"
+  short_description: "新氧连锁医美业务问答背景"
+  default_prompt: "使用连锁业务知识库回答分析问题、编写SQL、解读结果"
