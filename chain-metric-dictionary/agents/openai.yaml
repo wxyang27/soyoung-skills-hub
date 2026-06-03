@@ -1,0 +1,4 @@
+interface:
+  display_name: "连锁指标口径查询"
+  short_description: "新氧连锁医美业务指标口径查询，涵盖原子指标、衍生指标、维度体系和口径说明"
+  default_prompt: "使用连锁指标字典查询指标定义、计算公式、数据来源和口径说明"
