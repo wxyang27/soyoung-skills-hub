@@ -6,6 +6,7 @@ Thumbs.db
 .vscode/
 .idea/
 .env
+.env.odps
 *.secret
 credentials.json
 *.tmp
